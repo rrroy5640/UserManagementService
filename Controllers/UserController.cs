@@ -27,6 +27,42 @@ namespace UserManagementService.Controllers
             _passwordHasherService = passwordHasherService ?? throw new ArgumentNullException(nameof(passwordHasherService));
         }
 
+
+        private string GenerateToken(User user)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var key = _configuration["JWT_SECRET_KEY"];
+            var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key!));
+
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(new[]
+                {
+                    new Claim(ClaimTypes.Name, user.Id!.ToString()),
+                    new Claim(ClaimTypes.Email, user.Email)
+                }),
+                Expires = DateTime.UtcNow.AddHours(1),
+                SigningCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256Signature),
+                Issuer = "linyi-dev.com",
+                Audience = "linyi-dev.com"
+            };
+
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+            return tokenHandler.WriteToken(token);
+        }
+
+        private bool ValidateTokenEmail(string email)
+        {
+            var tokenEmail = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(tokenEmail) || !tokenEmail.Equals(email, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         [HttpGet("{email}")]
         public ActionResult<User> Get(string email)
         {
@@ -65,28 +101,6 @@ namespace UserManagementService.Controllers
             return CreatedAtAction(nameof(Get), new { email = user.Email }, registerResponse);
         }
 
-        private string GenerateToken(User user)
-        {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = _configuration["JWT_SECRET_KEY"];
-            var secretKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key!));
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new[]
-                {
-                    new Claim(ClaimTypes.Name, user.Id!.ToString())
-                }),
-                Expires = DateTime.UtcNow.AddHours(1),
-                SigningCredentials = new SigningCredentials(secretKey, SecurityAlgorithms.HmacSha256Signature),
-                Issuer = "linyi-dev.com",
-                Audience = "linyi-dev.com"
-            };
-
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
-        }
-
         [HttpPost("login")]
         public ActionResult<LoginResponse> Login(LoginRequest loginRequest)
         {
@@ -109,6 +123,8 @@ namespace UserManagementService.Controllers
         [HttpPut("{email}/password")]
         public ActionResult<ChangePasswordResponse> ChangePassword([FromRoute] string email, [FromBody] ChangePasswordRequest changePasswordRequest)
         {
+            ValidateTokenEmail(email);
+
             var user = _userService.Get(email);
 
             if (user == null)
@@ -136,6 +152,12 @@ namespace UserManagementService.Controllers
         [Authorize]
         public ActionResult Delete([FromRoute] string email)
         {
+            var tokenEmail = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(tokenEmail) || !tokenEmail.Equals(email, StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest("Email claim is missing or invalid.");
+            }
             var user = _userService.Get(email);
 
             if (user == null)
@@ -151,6 +173,13 @@ namespace UserManagementService.Controllers
         [Authorize]
         public ActionResult Update([FromRoute] string email, [FromBody] UpdateUserRequest userIn)
         {
+            var tokenEmail = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
+
+            if (string.IsNullOrEmpty(tokenEmail) || !tokenEmail.Equals(email, StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest("Email claim is missing or invalid.");
+            }
+
             var user = _userService.Get(email);
             if (user == null)
             {
@@ -173,7 +202,7 @@ namespace UserManagementService.Controllers
 
         [HttpGet("me")]
         [Authorize]
-        public ActionResult<User> GetCurrentUser()
+        public ActionResult<GetUserResponse> GetCurrentUser()
         {
             var email = User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Email)?.Value;
 
@@ -183,13 +212,18 @@ namespace UserManagementService.Controllers
             }
 
             var user = _userService.Get(email);
+            var response = new GetUserResponse
+            {
+                Name = user.Name,
+                Email = user.Email
+            };
 
             if (user == null)
             {
                 return NotFound("User not found.");
             }
 
-            return Ok(user);
+            return Ok(response);
         }
 
         [HttpGet("search")]
