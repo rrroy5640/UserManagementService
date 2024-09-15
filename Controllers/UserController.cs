@@ -3,7 +3,6 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Security.Claims;
-using Microsoft.AspNetCore.Identity;
 using UserManagementService.Services;
 using UserManagementService.Models;
 using UserManagementService.DTOs.Requests;
